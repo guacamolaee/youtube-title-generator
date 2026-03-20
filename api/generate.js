@@ -1,13 +1,72 @@
-const { YoutubeTranscript } = require('youtube-transcript');
-
 const ANTHROPIC_KEY = process.env.ANTHROPIC_KEY;
+
+async function getTranscript(videoId) {
+  // Use Android client — bypasses YouTube's bot detection for server IPs
+  const playerRes = await fetch(
+    'https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'com.google.android.youtube/17.36.4 (Linux; U; Android 12; GB) gzip',
+        'X-YouTube-Client-Name': '3',
+        'X-YouTube-Client-Version': '17.36.4',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      body: JSON.stringify({
+        videoId,
+        context: {
+          client: {
+            hl: 'en',
+            gl: 'US',
+            clientName: 'ANDROID',
+            clientVersion: '17.36.4',
+            androidSdkVersion: 31,
+            userAgent: 'com.google.android.youtube/17.36.4 (Linux; U; Android 12; GB) gzip',
+            osName: 'Android',
+            osVersion: '12',
+          },
+        },
+      }),
+    }
+  );
+
+  if (!playerRes.ok) throw new Error(`YouTube returned ${playerRes.status}`);
+  const player = await playerRes.json();
+
+  const videoTitle  = player?.videoDetails?.title  || '';
+  const channelName = player?.videoDetails?.author || '';
+
+  const tracks = player?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+  if (!tracks.length) throw new Error('No captions found for this video.');
+
+  const track =
+    tracks.find(t => t.languageCode === 'en' && !(t.kind || '').includes('asr')) ||
+    tracks.find(t => t.languageCode === 'en') ||
+    tracks.find(t => (t.languageCode || '').startsWith('en')) ||
+    tracks[0];
+
+  const capRes = await fetch(track.baseUrl + '&fmt=json3');
+  if (!capRes.ok) throw new Error('Failed to fetch captions.');
+  const capData = await capRes.json();
+
+  const transcript = (capData.events || [])
+    .filter(e => e.segs)
+    .flatMap(e => e.segs.map(s => s.utf8 || ''))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (transcript.length < 50) throw new Error('Transcript is too short.');
+
+  return { transcript, videoTitle, channelName };
+}
 
 module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const body = req.body || {};
-  const { videoId } = body;
+  const { videoId } = req.body || {};
   if (!videoId || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
     return res.status(400).json({ error: 'Invalid video ID.' });
   }
@@ -16,34 +75,19 @@ module.exports = async function handler(req, res) {
     return res.status(500).json({ error: 'ANTHROPIC_KEY environment variable not set.' });
   }
 
-  // 1. Fetch transcript
-  let transcriptItems;
+  let transcript, videoTitle, channelName;
   try {
-    transcriptItems = await YoutubeTranscript.fetchTranscript(videoId, { lang: 'en' });
+    ({ transcript, videoTitle, channelName } = await getTranscript(videoId));
   } catch (e) {
-    try {
-      transcriptItems = await YoutubeTranscript.fetchTranscript(videoId);
-    } catch (e2) {
-      return res.status(404).json({ error: 'Could not fetch transcript. The video may have no captions, be private, or age-restricted.' });
-    }
+    return res.status(404).json({ error: e.message });
   }
 
-  if (!transcriptItems || !transcriptItems.length) {
-    return res.status(404).json({ error: 'No transcript found for this video.' });
-  }
+  const hint = [
+    videoTitle  ? `The current video title is: "${videoTitle}"` : '',
+    channelName ? `The channel is: "${channelName}"`            : '',
+  ].filter(Boolean).join('\n');
 
-  const transcript = transcriptItems
-    .map(item => item.text)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  if (transcript.length < 50) {
-    return res.status(422).json({ error: 'Transcript is too short.' });
-  }
-
-  // 2. Call Anthropic
-  const prompt = `You are a YouTube title optimization expert.
+  const prompt = `You are a YouTube title optimization expert. ${hint}
 Based on the following video transcript, generate exactly 5 optimized YouTube title suggestions.
 
 Guidelines:
@@ -83,5 +127,5 @@ Output ONLY the 5 titles, one per line, numbered 1 through 5. No explanations, n
     .filter(l => l.length > 4)
     .slice(0, 5);
 
-  res.status(200).json({ titles, videoTitle: '', channelName: '' });
+  res.status(200).json({ titles, videoTitle, channelName });
 };
