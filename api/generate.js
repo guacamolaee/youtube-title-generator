@@ -1,44 +1,59 @@
-const ANTHROPIC_KEY = process.env.ANTHROPIC_KEY;
+export const config = { runtime: 'edge' };
 
-async function getTranscript(videoId) {
-  // Use Android client — bypasses YouTube's bot detection for server IPs
-  const playerRes = await fetch(
-    'https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8',
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'com.google.android.youtube/17.36.4 (Linux; U; Android 12; GB) gzip',
-        'X-YouTube-Client-Name': '3',
-        'X-YouTube-Client-Version': '17.36.4',
-        'Accept-Language': 'en-US,en;q=0.9',
-      },
-      body: JSON.stringify({
-        videoId,
-        context: {
-          client: {
-            hl: 'en',
-            gl: 'US',
-            clientName: 'ANDROID',
-            clientVersion: '17.36.4',
-            androidSdkVersion: 31,
-            userAgent: 'com.google.android.youtube/17.36.4 (Linux; U; Android 12; GB) gzip',
-            osName: 'Android',
-            osVersion: '12',
-          },
-        },
-      }),
-    }
-  );
+const YT_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Cookie': 'CONSENT=YES+1',
+};
 
-  if (!playerRes.ok) throw new Error(`YouTube returned ${playerRes.status}`);
-  const player = await playerRes.json();
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
 
-  const videoTitle  = player?.videoDetails?.title  || '';
-  const channelName = player?.videoDetails?.author || '';
+function extractCaptionTracks(html) {
+  const match = html.match(/"captionTracks":(\[.*?\])/);
+  if (!match) return [];
+  try { return JSON.parse(match[1]); } catch { return []; }
+}
 
-  const tracks = player?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
-  if (!tracks.length) throw new Error('No captions found for this video.');
+function extractVideoDetails(html) {
+  const titleMatch = html.match(/"title":"([^"]+)"/);
+  const authorMatch = html.match(/"author":"([^"]+)"/);
+  return {
+    videoTitle: titleMatch ? titleMatch[1].replace(/\\u[\dA-F]{4}/gi, c => String.fromCharCode(parseInt(c.replace(/\\u/, ''), 16))) : '',
+    channelName: authorMatch ? authorMatch[1] : '',
+  };
+}
+
+export default async function handler(request) {
+  if (request.method === 'OPTIONS') return new Response(null, { status: 200 });
+  if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+
+  const ANTHROPIC_KEY = process.env.ANTHROPIC_KEY;
+  if (!ANTHROPIC_KEY) return json({ error: 'ANTHROPIC_KEY environment variable not set.' }, 500);
+
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'Invalid JSON body.' }, 400); }
+
+  const { videoId } = body || {};
+  if (!videoId || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+    return json({ error: 'Invalid video ID.' }, 400);
+  }
+
+  // 1. Fetch YouTube watch page
+  const pageRes = await fetch(`https://www.youtube.com/watch?v=${videoId}&hl=en&gl=US`, {
+    headers: YT_HEADERS,
+  });
+  if (!pageRes.ok) return json({ error: `YouTube returned ${pageRes.status}` }, 502);
+  const html = await pageRes.text();
+
+  // 2. Extract caption tracks
+  const tracks = extractCaptionTracks(html);
+  if (!tracks.length) return json({ error: 'No captions found for this video.' }, 404);
 
   const track =
     tracks.find(t => t.languageCode === 'en' && !(t.kind || '').includes('asr')) ||
@@ -46,8 +61,9 @@ async function getTranscript(videoId) {
     tracks.find(t => (t.languageCode || '').startsWith('en')) ||
     tracks[0];
 
+  // 3. Fetch transcript
   const capRes = await fetch(track.baseUrl + '&fmt=json3');
-  if (!capRes.ok) throw new Error('Failed to fetch captions.');
+  if (!capRes.ok) return json({ error: 'Failed to fetch captions.' }, 502);
   const capData = await capRes.json();
 
   const transcript = (capData.events || [])
@@ -57,31 +73,11 @@ async function getTranscript(videoId) {
     .replace(/\s+/g, ' ')
     .trim();
 
-  if (transcript.length < 50) throw new Error('Transcript is too short.');
+  if (transcript.length < 50) return json({ error: 'Transcript is too short.' }, 422);
 
-  return { transcript, videoTitle, channelName };
-}
+  const { videoTitle, channelName } = extractVideoDetails(html);
 
-module.exports = async function handler(req, res) {
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-
-  const { videoId } = req.body || {};
-  if (!videoId || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
-    return res.status(400).json({ error: 'Invalid video ID.' });
-  }
-
-  if (!ANTHROPIC_KEY) {
-    return res.status(500).json({ error: 'ANTHROPIC_KEY environment variable not set.' });
-  }
-
-  let transcript, videoTitle, channelName;
-  try {
-    ({ transcript, videoTitle, channelName } = await getTranscript(videoId));
-  } catch (e) {
-    return res.status(404).json({ error: e.message });
-  }
-
+  // 4. Call Anthropic
   const hint = [
     videoTitle  ? `The current video title is: "${videoTitle}"` : '',
     channelName ? `The channel is: "${channelName}"`            : '',
@@ -117,15 +113,15 @@ Output ONLY the 5 titles, one per line, numbered 1 through 5. No explanations, n
     }),
   });
 
-  if (!aiRes.ok) return res.status(502).json({ error: `Anthropic API error (${aiRes.status}).` });
+  if (!aiRes.ok) return json({ error: `Anthropic API error (${aiRes.status}).` }, 502);
   const aiData = await aiRes.json();
-  if (aiData.error) return res.status(502).json({ error: 'Anthropic: ' + aiData.error.message });
+  if (aiData.error) return json({ error: 'Anthropic: ' + aiData.error.message }, 502);
 
-  const raw = (aiData.content && aiData.content[0] && aiData.content[0].text) || '';
+  const raw = aiData.content?.[0]?.text || '';
   const titles = raw.split('\n')
     .map(l => l.replace(/^\d+[\.\)]\s*/, '').trim())
     .filter(l => l.length > 4)
     .slice(0, 5);
 
-  res.status(200).json({ titles, videoTitle, channelName });
-};
+  return json({ titles, videoTitle, channelName });
+}
