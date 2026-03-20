@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YouTube Title Generator</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f0f0f;
+      --surface: #1a1a1a;
+      --surface2: #242424;
+      --border: #2e2e2e;
+      --text: #e8e8e8;
+      --muted: #888;
+      --accent: #ff4444;
+      --accent-hover: #ff2222;
+      --accent-subtle: rgba(255, 68, 68, 0.1);
+      --radius: 10px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 16px 80px;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .logo {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .logo-icon {
+      width: 40px;
+      height: 40px;
+      background: var(--accent);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .logo-icon svg {
+      width: 22px;
+      height: 22px;
+      fill: white;
+    }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      color: var(--text);
+    }
+
+    .subtitle {
+      font-size: 15px;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 640px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+    }
+
+    .field {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--muted);
+      margin-bottom: 7px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    input[type="text"],
+    input[type="password"] {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 11px 14px;
+      font-size: 14px;
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    input[type="text"]:focus,
+    input[type="password"]:focus {
+      border-color: var(--accent);
+    }
+
+    input::placeholder {
+      color: #555;
+    }
+
+    .submit-btn {
+      width: 100%;
+      margin-top: 4px;
+      padding: 13px;
+      background: var(--accent);
+      border: none;
+      border-radius: 8px;
+      color: white;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, opacity 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .submit-btn:hover:not(:disabled) { background: var(--accent-hover); }
+    .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border: 2.5px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .status-bar {
+      margin-top: 20px;
+      font-size: 13px;
+      color: var(--muted);
+      text-align: center;
+      min-height: 20px;
+    }
+
+    .status-bar.error {
+      color: #ff6b6b;
+    }
+
+    .results {
+      width: 100%;
+      max-width: 640px;
+      margin-top: 24px;
+      display: none;
+    }
+
+    .results-header {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+    }
+
+    .title-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .title-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      position: relative;
+    }
+
+    .title-item:hover {
+      border-color: var(--accent);
+      background: var(--surface2);
+    }
+
+    .title-num {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--accent);
+      min-width: 22px;
+      line-height: 1.5;
+    }
+
+    .title-text {
+      font-size: 15px;
+      line-height: 1.5;
+      color: var(--text);
+      flex: 1;
+    }
+
+    .copy-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      padding: 4px 10px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s;
+      flex-shrink: 0;
+    }
+
+    .copy-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .copy-btn.copied {
+      border-color: #4caf50;
+      color: #4caf50;
+    }
+
+    .divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 20px 0;
+    }
+
+    .video-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 16px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .video-meta-dot { color: var(--border); }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .title-item {
+      animation: fadeIn 0.3s ease both;
+    }
+
+    .title-item:nth-child(1) { animation-delay: 0ms; }
+    .title-item:nth-child(2) { animation-delay: 60ms; }
+    .title-item:nth-child(3) { animation-delay: 120ms; }
+    .title-item:nth-child(4) { animation-delay: 180ms; }
+    .title-item:nth-child(5) { animation-delay: 240ms; }
+
+    .step-dots {
+      display: flex;
+      gap: 6px;
+      justify-content: center;
+      margin-top: 8px;
+    }
+
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--border);
+      transition: background 0.3s;
+    }
+
+    .dot.active { background: var(--accent); }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z"/>
+        </svg>
+      </div>
+      <h1>YouTube Title Generator</h1>
+    </div>
+    <p class="subtitle">Paste a YouTube URL and get 5 AI-optimized title ideas</p>
+  </div>
+
+  <div class="card">
+    <div class="field">
+      <label>YouTube URL</label>
+      <input
+        type="text"
+        id="urlInput"
+        placeholder="https://www.youtube.com/watch?v=..."
+        autocomplete="off"
+        spellcheck="false"
+      />
+    </div>
+
+    <button class="submit-btn" id="submitBtn">
+      <span class="spinner" id="spinner"></span>
+      <span id="btnLabel">Generate Titles</span>
+    </button>
+
+    <div class="status-bar" id="statusBar"></div>
+
+    <div class="step-dots" id="stepDots" style="display:none;">
+      <div class="dot" id="dot1"></div>
+      <div class="dot" id="dot2"></div>
+      <div class="dot" id="dot3"></div>
+    </div>
+  </div>
+
+  <div class="results" id="results">
+    <div class="results-header">5 Optimized Title Suggestions</div>
+    <div class="video-meta" id="videoMeta"></div>
+    <div class="title-list" id="titleList"></div>
+  </div>
+
+  <script>
+    // ─── DOM refs ────────────────────────────────────────────────────────────
+    const urlInput   = document.getElementById('urlInput');
+    const submitBtn  = document.getElementById('submitBtn');
+    const spinner    = document.getElementById('spinner');
+    const btnLabel   = document.getElementById('btnLabel');
+    const statusBar  = document.getElementById('statusBar');
+    const resultsEl  = document.getElementById('results');
+    const videoMeta  = document.getElementById('videoMeta');
+    const titleList  = document.getElementById('titleList');
+    const stepDots   = document.getElementById('stepDots');
+    const dot1       = document.getElementById('dot1');
+    const dot2       = document.getElementById('dot2');
+    const dot3       = document.getElementById('dot3');
+
+    // ─── Allow Enter key to submit ───────────────────────────────────────────
+    urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') generate(); });
+
+    // ─── Main button ─────────────────────────────────────────────────────────
+    submitBtn.addEventListener('click', generate);
+
+    // ─── Helpers ─────────────────────────────────────────────────────────────
+    function extractVideoId(url) {
+      try {
+        const u = new URL(url.trim());
+        if (u.hostname.includes('youtu.be')) return u.pathname.slice(1).split('?')[0];
+        if (u.searchParams.has('v')) return u.searchParams.get('v');
+      } catch {}
+      const m = url.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+      return m ? m[1] : null;
+    }
+
+    function setStatus(msg, isError = false) {
+      statusBar.textContent = msg;
+      statusBar.className = 'status-bar' + (isError ? ' error' : '');
+    }
+
+    function setLoading(on) {
+      submitBtn.disabled = on;
+      spinner.style.display = on ? 'block' : 'none';
+      btnLabel.textContent = on ? 'Working…' : 'Generate Titles';
+      stepDots.style.display = on ? 'flex' : 'none';
+      if (!on) {
+        [dot1, dot2, dot3].forEach(d => d.classList.remove('active'));
+      }
+    }
+
+    function setStep(n) {
+      [dot1, dot2, dot3].forEach((d, i) => {
+        d.classList.toggle('active', i < n);
+      });
+    }
+
+    // ─── Call backend ────────────────────────────────────────────────────────
+    async function fetchTitles(videoId) {
+      setStep(1);
+      setStatus('Fetching transcript…');
+
+      const res = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoId }),
+      });
+
+      setStep(2);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      setStep(3);
+      setStatus('Generating titles…');
+      return data;
+    }
+
+    // ─── Render results ───────────────────────────────────────────────────────
+    function renderResults(titles, videoTitle, channelName) {
+      titleList.innerHTML = '';
+
+      if (videoTitle || channelName) {
+        const parts = [];
+        if (channelName) parts.push(channelName);
+        if (videoTitle) parts.push(`"${videoTitle}"`);
+        videoMeta.innerHTML = parts.map(p => `<span>${p}</span>`).join('<span class="video-meta-dot">·</span>');
+        videoMeta.style.display = 'flex';
+      } else {
+        videoMeta.style.display = 'none';
+      }
+
+      titles.forEach((title, i) => {
+        const item = document.createElement('div');
+        item.className = 'title-item';
+
+        const num  = document.createElement('span');
+        num.className = 'title-num';
+        num.textContent = `${i + 1}`;
+
+        const text = document.createElement('span');
+        text.className = 'title-text';
+        text.textContent = title;
+
+        const copy = document.createElement('button');
+        copy.className = 'copy-btn';
+        copy.textContent = 'Copy';
+        copy.addEventListener('click', (e) => {
+          e.stopPropagation();
+          navigator.clipboard.writeText(title).then(() => {
+            copy.textContent = 'Copied!';
+            copy.classList.add('copied');
+            setTimeout(() => {
+              copy.textContent = 'Copy';
+              copy.classList.remove('copied');
+            }, 2000);
+          });
+        });
+
+        item.addEventListener('click', () => {
+          navigator.clipboard.writeText(title).then(() => {
+            copy.textContent = 'Copied!';
+            copy.classList.add('copied');
+            setTimeout(() => {
+              copy.textContent = 'Copy';
+              copy.classList.remove('copied');
+            }, 2000);
+          });
+        });
+
+        item.appendChild(num);
+        item.appendChild(text);
+        item.appendChild(copy);
+        titleList.appendChild(item);
+      });
+
+      resultsEl.style.display = 'block';
+    }
+
+    // ─── Main flow ────────────────────────────────────────────────────────────
+    async function generate() {
+      const url = urlInput.value.trim();
+
+      if (!url) {
+        setStatus('Please enter a YouTube URL.', true);
+        urlInput.focus();
+        return;
+      }
+
+      const videoId = extractVideoId(url);
+      if (!videoId) {
+        setStatus('Could not parse a valid YouTube video ID from that URL.', true);
+        return;
+      }
+
+      setLoading(true);
+      setStatus('');
+      resultsEl.style.display = 'none';
+
+      try {
+        const { titles, videoTitle, channelName } = await fetchTitles(videoId);
+        renderResults(titles, videoTitle, channelName);
+        setStatus('');
+      } catch (err) {
+        setStatus(err.message, true);
+      } finally {
+        setLoading(false);
+      }
+    }
+  </script>
+</body>
+</html>
