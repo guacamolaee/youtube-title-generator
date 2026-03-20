@@ -1,5 +1,7 @@
 {
-  "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/:path*" }
-  ]
+  "functions": {
+    "api/generate.js": {
+      "maxDuration": 30
+    }
+  }
 }
