@@ -15,9 +15,19 @@ function json(data, status = 200) {
 }
 
 function extractCaptionTracks(html) {
-  const match = html.match(/"captionTracks":(\[.*?\])/);
-  if (!match) return [];
-  try { return JSON.parse(match[1]); } catch { return []; }
+  const marker = '"captionTracks":';
+  const idx = html.indexOf(marker);
+  if (idx === -1) return null; // null = not found vs [] = found but empty
+  let start = idx + marker.length;
+  while (start < html.length && html[start] !== '[') start++;
+  if (start >= html.length) return [];
+  let depth = 0, end = -1;
+  for (let i = start; i < html.length; i++) {
+    if (html[i] === '[') depth++;
+    else if (html[i] === ']') { depth--; if (depth === 0) { end = i; break; } }
+  }
+  if (end === -1) return [];
+  try { return JSON.parse(html.slice(start, end + 1)); } catch { return []; }
 }
 
 function extractVideoDetails(html) {
@@ -53,6 +63,11 @@ export default async function handler(request) {
 
   // 2. Extract caption tracks
   const tracks = extractCaptionTracks(html);
+  if (tracks === null) {
+    // captionTracks key not found — likely got a bot-check page
+    const isBot = html.includes('detected unusual traffic') || html.includes('confirm you') || html.includes('recaptcha');
+    return json({ error: `YouTube served a ${isBot ? 'bot-check' : 'unexpected'} page (size: ${html.length} chars). Try again later.` }, 502);
+  }
   if (!tracks.length) return json({ error: 'No captions found for this video.' }, 404);
 
   const track =
